@@ -1,0 +1,182 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const dbMocks = vi.hoisted(() => ({
+  saveUserProfile: vi.fn(),
+  getMarketplaceState: vi.fn(),
+  createRequestWithImages: vi.fn(),
+  createOfferWithImages: vi.fn(),
+  createCarSaleWithImages: vi.fn(),
+  acceptOffer: vi.fn(),
+  completeDeal: vi.fn(),
+  createReviewForDeal: vi.fn(),
+}));
+
+const supabaseMocks = vi.hoisted(() => ({
+  getSupabasePublicConfig: vi.fn(),
+}));
+
+vi.mock("./db", () => dbMocks);
+vi.mock("./supabase", () => supabaseMocks);
+
+import { appRouter } from "./routers";
+import type { TrpcContext } from "./_core/context";
+
+function createCaller() {
+  const ctx: TrpcContext = {
+    user: null,
+    req: {
+      protocol: "https",
+      headers: {},
+    } as TrpcContext["req"],
+    res: {
+      clearCookie: vi.fn(),
+    } as TrpcContext["res"],
+  };
+
+  return appRouter.createCaller(ctx);
+}
+
+describe("marketplace router", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    supabaseMocks.getSupabasePublicConfig.mockReturnValue({
+      url: "https://example.supabase.co",
+      anonKey: "anon-key-value",
+    });
+    dbMocks.saveUserProfile.mockResolvedValue({ id: 1, role: "customer" });
+    dbMocks.getMarketplaceState.mockResolvedValue({
+      currentUser: { id: 1, role: "customer" },
+      customerRequests: [],
+      supplierRequests: [],
+      publicCars: [],
+      myCars: [],
+      myReviews: [],
+    });
+    dbMocks.createRequestWithImages.mockResolvedValue({ id: 11 });
+    dbMocks.createOfferWithImages.mockResolvedValue({ id: 22 });
+    dbMocks.createCarSaleWithImages.mockResolvedValue({ id: 33 });
+    dbMocks.acceptOffer.mockResolvedValue({ success: true });
+    dbMocks.completeDeal.mockResolvedValue({ success: true });
+    dbMocks.createReviewForDeal.mockResolvedValue({ id: 44 });
+  });
+
+  it("returns the public supabase config for the client", async () => {
+    const caller = createCaller();
+
+    const result = await caller.marketplace.getPublicConfig();
+
+    expect(result).toEqual({
+      url: "https://example.supabase.co",
+      anonKey: "anon-key-value",
+    });
+    expect(supabaseMocks.getSupabasePublicConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates request, offer, car sale and review operations to the data layer", async () => {
+    const caller = createCaller();
+    const files = [
+      {
+        dataUrl: "data:image/png;base64,aGVsbG8=",
+        fileName: "part.png",
+        mimeType: "image/png",
+      },
+    ];
+
+    await caller.marketplace.createRequest({
+      accessToken: "valid-access-token",
+      vehicleBrand: "تويوتا",
+      vehicleModel: "كامري",
+      vehicleYear: 2020,
+      partName: "شمعة",
+      partDescription: "مطلوبة بحالة ممتازة",
+      city: "الرياض",
+      files,
+    });
+
+    await caller.marketplace.createOffer({
+      accessToken: "valid-access-token",
+      requestId: 11,
+      priceSar: 750,
+      partCondition: "used",
+      offerDescription: "قطعة أصلية مفكوكة",
+      whatsappNumber: "0500000000",
+      files,
+    });
+
+    await caller.marketplace.createCarSale({
+      accessToken: "valid-access-token",
+      vehicleBrand: "هيونداي",
+      vehicleModel: "سوناتا",
+      vehicleYear: 2019,
+      conditionSummary: "ممشاها متوسط",
+      priceSar: 28000,
+      city: "جدة",
+      description: "السيارة نظيفة وتحتاج رش رفرف",
+      files,
+    });
+
+    await caller.marketplace.createReview({
+      accessToken: "valid-access-token",
+      requestId: 11,
+      offerId: 22,
+      rating: 5,
+      comment: "التعامل ممتاز وسرعة في التسليم",
+    });
+
+    expect(dbMocks.createRequestWithImages).toHaveBeenCalledWith({
+      accessToken: "valid-access-token",
+      vehicleBrand: "تويوتا",
+      vehicleModel: "كامري",
+      vehicleYear: 2020,
+      partName: "شمعة",
+      partDescription: "مطلوبة بحالة ممتازة",
+      city: "الرياض",
+      files,
+    });
+    expect(dbMocks.createOfferWithImages).toHaveBeenCalledWith({
+      accessToken: "valid-access-token",
+      requestId: 11,
+      priceSar: 750,
+      partCondition: "used",
+      offerDescription: "قطعة أصلية مفكوكة",
+      whatsappNumber: "0500000000",
+      files,
+    });
+    expect(dbMocks.createCarSaleWithImages).toHaveBeenCalledWith({
+      accessToken: "valid-access-token",
+      vehicleBrand: "هيونداي",
+      vehicleModel: "سوناتا",
+      vehicleYear: 2019,
+      conditionSummary: "ممشاها متوسط",
+      priceSar: 28000,
+      city: "جدة",
+      description: "السيارة نظيفة وتحتاج رش رفرف",
+      files,
+    });
+    expect(dbMocks.createReviewForDeal).toHaveBeenCalledWith({
+      accessToken: "valid-access-token",
+      requestId: 11,
+      offerId: 22,
+      rating: 5,
+      comment: "التعامل ممتاز وسرعة في التسليم",
+    });
+  });
+
+  it("rejects invalid marketplace payloads before touching the data layer", async () => {
+    const caller = createCaller();
+
+    await expect(
+      caller.marketplace.createOffer({
+        accessToken: "valid-access-token",
+        requestId: 11,
+        priceSar: -5,
+        partCondition: "used",
+        offerDescription: "",
+        whatsappNumber: "",
+        files: [],
+      })
+    ).rejects.toThrow();
+
+    expect(dbMocks.createOfferWithImages).not.toHaveBeenCalled();
+  });
+});

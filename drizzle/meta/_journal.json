@@ -1,5 +1,27 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1776248360681,
+      "tag": "0000_hot_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1776249151103,
+      "tag": "0001_amazing_magma",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1776249706844,
+      "tag": "0002_mysterious_shatterstar",
+      "breakpoints": true
+    }
+  ]
 }
