@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { createClient, type Session } from "@supabase/supabase-js";
+import { canUseDemoOtp, DEMO_ACCESS_TOKEN, DEMO_OTP_CODE, DEMO_PHONE, getDemoOtpHint } from "@/lib/demoOtp";
 import {
   CarFront,
   CheckCircle2,
@@ -20,10 +21,6 @@ import { toast } from "sonner";
 type RoleType = "customer" | "supplier";
 type UploadPayload = { dataUrl: string; fileName: string; mimeType: string };
 type ActivePanel = "request" | "car" | "offer" | "review" | null;
-
-const DEMO_PHONE = "+966536051509";
-const DEMO_OTP_CODE = "252525";
-const DEMO_ACCESS_TOKEN = "demo:+966536051509";
 
 function normalizeSaudiPhone(input: string) {
   const digits = input.replace(/\D/g, "");
@@ -271,8 +268,9 @@ export default function Home() {
       return;
     }
     if (phone === DEMO_PHONE) {
+      const hint = getDemoOtpHint(phone);
       setOtpStep("code");
-      toast.success("تم تفعيل الوضع التجريبي. استخدم الرمز 252525 لإكمال الدخول.");
+      toast.success(`تم تفعيل الوضع التجريبي. استخدم الرمز ${hint?.code ?? DEMO_OTP_CODE} لإكمال الدخول.`);
       return;
     }
     const { error } = await supabase!.auth.signInWithOtp({ phone });
@@ -286,7 +284,7 @@ export default function Home() {
 
   async function handleVerifyOtp() {
     if (normalizedPhone === DEMO_PHONE) {
-      if (otpCode !== DEMO_OTP_CODE) {
+      if (!canUseDemoOtp(normalizedPhone, otpCode)) {
         toast.error("رمز OTP التجريبي غير صحيح.");
         return;
       }
