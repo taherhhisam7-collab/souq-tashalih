@@ -21,6 +21,10 @@ type RoleType = "customer" | "supplier";
 type UploadPayload = { dataUrl: string; fileName: string; mimeType: string };
 type ActivePanel = "request" | "car" | "offer" | "review" | null;
 
+const DEMO_PHONE = "+966536051509";
+const DEMO_OTP_CODE = "252525";
+const DEMO_ACCESS_TOKEN = "demo:+966536051509";
+
 function normalizeSaudiPhone(input: string) {
   const digits = input.replace(/\D/g, "");
   if (!digits) return "+966";
@@ -84,6 +88,7 @@ export default function Home() {
   const utils = trpc.useUtils();
   const configQuery = trpc.marketplace.getPublicConfig.useQuery();
   const [session, setSession] = useState<Session | null>(null);
+  const [demoAccessToken, setDemoAccessToken] = useState<string>("");
   const [otpStep, setOtpStep] = useState<"phone" | "code">("phone");
   const [phoneInput, setPhoneInput] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -148,7 +153,8 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  const accessToken = session?.access_token ?? "";
+  const accessToken = session?.access_token ?? demoAccessToken;
+  const isSignedIn = Boolean(session?.access_token || demoAccessToken);
   const appStateQuery = trpc.marketplace.getState.useQuery(
     { accessToken },
     {
@@ -258,13 +264,18 @@ export default function Home() {
     createReviewMutation.isPending;
 
   async function handleSendOtp() {
-    if (!supabase) return;
+    if (!supabase && normalizedPhone !== DEMO_PHONE) return;
     const phone = normalizedPhone;
     if (phone.length < 13) {
       toast.error("أدخل رقم جوال سعودي صحيح يبدأ بـ +966.");
       return;
     }
-    const { error } = await supabase.auth.signInWithOtp({ phone });
+    if (phone === DEMO_PHONE) {
+      setOtpStep("code");
+      toast.success("تم تفعيل الوضع التجريبي. استخدم الرمز 252525 لإكمال الدخول.");
+      return;
+    }
+    const { error } = await supabase!.auth.signInWithOtp({ phone });
     if (error) {
       toast.error(error.message);
       return;
@@ -274,6 +285,16 @@ export default function Home() {
   }
 
   async function handleVerifyOtp() {
+    if (normalizedPhone === DEMO_PHONE) {
+      if (otpCode !== DEMO_OTP_CODE) {
+        toast.error("رمز OTP التجريبي غير صحيح.");
+        return;
+      }
+      setDemoAccessToken(DEMO_ACCESS_TOKEN);
+      setOtpCode("");
+      toast.success("تم تسجيل الدخول بالحساب التجريبي بنجاح.");
+      return;
+    }
     if (!supabase) return;
     const { error } = await supabase.auth.verifyOtp({
       phone: normalizedPhone,
@@ -284,12 +305,17 @@ export default function Home() {
       toast.error(error.message);
       return;
     }
+    setDemoAccessToken("");
     toast.success("تم تسجيل الدخول بنجاح.");
   }
 
   async function handleLogout() {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+    if (session && supabase) {
+      await supabase.auth.signOut();
+    }
+    setDemoAccessToken("");
+    setOtpStep("phone");
+    setOtpCode("");
     setActivePanel(null);
     setOfferRequestId(null);
     toast.success("تم تسجيل الخروج.");
@@ -400,7 +426,7 @@ export default function Home() {
               <p className="text-xs text-white/75">منصة قطع غيار وسيارات</p>
               <h1 className="mt-1 text-3xl font-black tracking-tight">سوق التشاليح</h1>
             </div>
-            {session ? (
+            {isSignedIn ? (
               <button
                 type="button"
                 onClick={handleLogout}
@@ -442,7 +468,7 @@ export default function Home() {
         </header>
 
         <main className="space-y-4 px-4 pb-6 pt-4">
-          {!session ? (
+          {!isSignedIn ? (
             <SectionCard>
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-[#edf8f0] p-3 text-[#0c8f4a]">
@@ -450,7 +476,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold">تسجيل الدخول</h2>
-                  <p className="text-sm text-[#77736a]">الدخول برقم الجوال السعودي مع رمز تحقق OTP عبر Supabase.</p>
+                  <p className="text-sm text-[#77736a]">الدخول برقم الجوال السعودي مع رمز تحقق OTP عبر Supabase، مع تفعيل وضع تجريبي للرقم 0536051509.</p>
                 </div>
               </div>
 
@@ -466,6 +492,12 @@ export default function Home() {
                     placeholder="5xxxxxxxx"
                   />
                 </div>
+
+                {normalizedPhone === DEMO_PHONE && otpStep === "phone" ? (
+                  <p className="mt-3 rounded-2xl bg-[#eef7f1] px-4 py-3 text-xs leading-5 text-[#0c8f4a]">
+                    للوضع التجريبي استخدم الرقم <span className="font-extrabold">0536051509</span> ثم أدخل الرمز <span className="font-extrabold">252525</span>.
+                  </p>
+                ) : null}
 
                 {otpStep === "code" ? (
                   <>
@@ -494,6 +526,7 @@ export default function Home() {
                 <StatBox label="المفتاح" value="+966" />
                 <StatBox label="التخزين" value="Supabase" />
               </div>
+              <p className="mt-3 text-center text-xs text-[#847f75]">يمكنك اختبار الدخول مباشرة بالرقم 0536051509 والرمز 252525.</p>
             </SectionCard>
           ) : (
             <>

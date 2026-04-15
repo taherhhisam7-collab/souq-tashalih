@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSupabasePublicConfig, MARKETPLACE_BUCKET } from "./supabase";
+import { DEMO_ACCESS_TOKEN, DEMO_PHONE, getSupabasePublicConfig, MARKETPLACE_BUCKET, verifySupabaseAccessToken } from "./supabase";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -43,5 +43,12 @@ describe("supabase secrets", () => {
       anonKey: SUPABASE_ANON_KEY,
     });
     expect(MARKETPLACE_BUCKET).toBe("souq-media");
+  });
+
+  it("accepts the configured demo access token without calling Supabase auth", async () => {
+    const demoUser = await verifySupabaseAccessToken(DEMO_ACCESS_TOKEN);
+
+    expect(demoUser.id).toBe("demo-user-0536051509");
+    expect(demoUser.phone).toBe(DEMO_PHONE);
   });
 });
