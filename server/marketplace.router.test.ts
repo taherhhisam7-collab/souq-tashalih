@@ -54,6 +54,22 @@ describe("marketplace router", () => {
       myReviews: [],
       notifications: [],
       unreadNotificationsCount: 0,
+      allowedVehicleTypes: ["تويوتا كامري"],
+      allowedCities: ["الرياض"],
+      supplierDashboard: {
+        acceptedOffersCount: 2,
+        conversionRate: 40,
+        totalRevenueSar: 1350,
+        newRequestsCount: 3,
+        topBrands: [{ label: "تويوتا كامري", count: 2 }],
+        topParts: [{ label: "كمبروسر", count: 1 }],
+        salesSeries: {
+          daily: [{ label: "اليوم", value: 450 }],
+          weekly: [{ label: "هذا الأسبوع", value: 1350 }],
+          monthly: [{ label: "هذا الشهر", value: 1350 }],
+        },
+        smartSuggestions: ["ركّز على قطع تويوتا هذا الأسبوع."],
+      },
     });
     dbMocks.createRequestWithImages.mockResolvedValue({ id: 11 });
     dbMocks.createOfferWithImages.mockResolvedValue({ id: 22 });
@@ -74,6 +90,30 @@ describe("marketplace router", () => {
       anonKey: "anon-key-value",
     });
     expect(supabaseMocks.getSupabasePublicConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns marketplace state including supplier dashboard analytics", async () => {
+    const caller = createCaller();
+
+    const result = await caller.marketplace.getState({ accessToken: "valid-access-token" });
+
+    expect(dbMocks.getMarketplaceState).toHaveBeenCalledWith("valid-access-token");
+    expect(result.allowedVehicleTypes).toEqual(["تويوتا كامري"]);
+    expect(result.allowedCities).toEqual(["الرياض"]);
+    expect(result.supplierDashboard).toEqual({
+      acceptedOffersCount: 2,
+      conversionRate: 40,
+      totalRevenueSar: 1350,
+      newRequestsCount: 3,
+      topBrands: [{ label: "تويوتا كامري", count: 2 }],
+      topParts: [{ label: "كمبروسر", count: 1 }],
+      salesSeries: {
+        daily: [{ label: "اليوم", value: 450 }],
+        weekly: [{ label: "هذا الأسبوع", value: 1350 }],
+        monthly: [{ label: "هذا الشهر", value: 1350 }],
+      },
+      smartSuggestions: ["ركّز على قطع تويوتا هذا الأسبوع."],
+    });
   });
 
   it("delegates request, offer, car sale and review operations to the data layer", async () => {
@@ -110,12 +150,10 @@ describe("marketplace router", () => {
     await caller.marketplace.createCarSale({
       accessToken: "valid-access-token",
       vehicleBrand: "هيونداي",
-      vehicleModel: "سوناتا",
-      vehicleYear: 2019,
-      conditionSummary: "ممشاها متوسط",
+      vehicleModel: "2019",
       priceSar: 28000,
-      city: "جدة",
-      description: "السيارة نظيفة وتحتاج رش رفرف",
+      location: "جدة",
+      damageDescription: "السيارة متضررة من الجهة الأمامية وتحتاج تغيير رفرف وصدام",
       files,
     });
 
@@ -123,7 +161,9 @@ describe("marketplace router", () => {
       accessToken: "valid-access-token",
       requestId: 11,
       offerId: 22,
-      rating: 5,
+      qualityRating: 5,
+      responseSpeedRating: 4,
+      priceRating: 5,
       comment: "التعامل ممتاز وسرعة في التسليم",
     });
 
@@ -154,19 +194,19 @@ describe("marketplace router", () => {
     expect(dbMocks.createCarSaleWithImages).toHaveBeenCalledWith({
       accessToken: "valid-access-token",
       vehicleBrand: "هيونداي",
-      vehicleModel: "سوناتا",
-      vehicleYear: 2019,
-      conditionSummary: "ممشاها متوسط",
+      vehicleModel: "2019",
       priceSar: 28000,
-      city: "جدة",
-      description: "السيارة نظيفة وتحتاج رش رفرف",
+      location: "جدة",
+      damageDescription: "السيارة متضررة من الجهة الأمامية وتحتاج تغيير رفرف وصدام",
       files,
     });
     expect(dbMocks.createReviewForDeal).toHaveBeenCalledWith({
       accessToken: "valid-access-token",
       requestId: 11,
       offerId: 22,
-      rating: 5,
+      qualityRating: 5,
+      responseSpeedRating: 4,
+      priceRating: 5,
       comment: "التعامل ممتاز وسرعة في التسليم",
     });
     expect(dbMocks.markNotificationAsRead).toHaveBeenCalledWith({

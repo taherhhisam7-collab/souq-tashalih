@@ -41,7 +41,22 @@ export const requests = mysqlTable("requests", {
   partDescription: text("partDescription"),
   partImageUrls: text("partImageUrls"),
   city: varchar("city", { length: 128 }),
-  status: mysqlEnum("status", ["pending", "offered", "accepted", "completed", "cancelled", "rejected"]).default("pending").notNull(),
+  status: mysqlEnum("status", [
+    "pending",
+    "offered",
+    "accepted",
+    "completed",
+    "cancelled",
+    "rejected",
+    "جديد",
+    "تم تقديم عروض",
+    "تم قبول العرض",
+    "مكتمل",
+    "ملغي",
+    "مرفوض",
+  ])
+    .default("جديد")
+    .notNull(),
   acceptedOfferId: int("acceptedOfferId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -53,6 +68,7 @@ export const offers = mysqlTable("offers", {
   supplierUserId: int("supplierUserId").notNull(),
   priceSar: int("priceSar").notNull(),
   partCondition: mysqlEnum("partCondition", ["new", "used", "refurbished"]).default("used").notNull(),
+  warranty: varchar("warranty", { length: 255 }),
   offerDescription: text("offerDescription"),
   offerImageUrls: text("offerImageUrls"),
   status: mysqlEnum("status", ["pending", "accepted", "rejected", "completed", "withdrawn"]).default("pending").notNull(),
@@ -77,6 +93,20 @@ export const carsForSale = mysqlTable("carsForSale", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const damagedCars = mysqlTable("damaged_cars", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerUserId: int("ownerUserId").notNull(),
+  location: varchar("location", { length: 128 }).notNull(),
+  vehicleBrand: varchar("vehicleBrand", { length: 128 }).notNull(),
+  vehicleModel: varchar("vehicleModel", { length: 128 }).notNull(),
+  askingPriceSar: int("askingPriceSar").notNull(),
+  imageUrls: text("imageUrls"),
+  damageDescription: text("damageDescription"),
+  status: mysqlEnum("status", ["جديد", "منشور", "مباع", "مؤرشف"]).default("منشور").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const reviews = mysqlTable("reviews", {
   id: int("id").autoincrement().primaryKey(),
   requestId: int("requestId").notNull(),
@@ -84,6 +114,9 @@ export const reviews = mysqlTable("reviews", {
   reviewerUserId: int("reviewerUserId").notNull(),
   supplierUserId: int("supplierUserId").notNull(),
   rating: int("rating").notNull(),
+  qualityRating: int("qualityRating").default(5).notNull(),
+  responseSpeedRating: int("responseSpeedRating").default(5).notNull(),
+  priceRating: int("priceRating").default(5).notNull(),
   comment: text("comment"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -114,6 +147,9 @@ export type InsertOffer = typeof offers.$inferInsert;
 
 export type CarForSale = typeof carsForSale.$inferSelect;
 export type InsertCarForSale = typeof carsForSale.$inferInsert;
+
+export type DamagedCar = typeof damagedCars.$inferSelect;
+export type InsertDamagedCar = typeof damagedCars.$inferInsert;
 
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = typeof reviews.$inferInsert;

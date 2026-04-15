@@ -29,6 +29,13 @@
       "when": 1776254579766,
       "tag": "0003_fancy_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1776257100521,
+      "tag": "0004_windy_santa_claus",
+      "breakpoints": true
     }
   ]
 }

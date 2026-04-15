@@ -98,6 +98,7 @@ export const appRouter = router({
           requestId: z.number().int().positive(),
           priceSar: z.number().int().positive(),
           partCondition: z.enum(["new", "used", "refurbished"]),
+          warranty: z.string().trim().optional(),
           offerDescription: z.string().optional(),
           whatsappNumber: z.string().optional(),
           files: z.array(uploadSchema).default([]),
@@ -109,6 +110,7 @@ export const appRouter = router({
           requestId: input.requestId,
           priceSar: input.priceSar,
           partCondition: input.partCondition,
+          warranty: input.warranty,
           offerDescription: input.offerDescription,
           whatsappNumber: input.whatsappNumber,
           files: input.files,
@@ -119,11 +121,9 @@ export const appRouter = router({
         accessTokenSchema.extend({
           vehicleBrand: z.string().min(1),
           vehicleModel: z.string().min(1),
-          vehicleYear: z.number().int().min(1950).max(2050),
-          conditionSummary: z.string().min(1),
           priceSar: z.number().int().positive(),
-          city: z.string().optional(),
-          description: z.string().optional(),
+          location: z.string().min(1),
+          damageDescription: z.string().min(1),
           files: z.array(uploadSchema).default([]),
         })
       )
@@ -132,11 +132,9 @@ export const appRouter = router({
           accessToken: input.accessToken,
           vehicleBrand: input.vehicleBrand,
           vehicleModel: input.vehicleModel,
-          vehicleYear: input.vehicleYear,
-          conditionSummary: input.conditionSummary,
           priceSar: input.priceSar,
-          city: input.city,
-          description: input.description,
+          location: input.location,
+          damageDescription: input.damageDescription,
           files: input.files,
         })
       ),
@@ -161,7 +159,9 @@ export const appRouter = router({
         accessTokenSchema.extend({
           requestId: z.number().int().positive(),
           offerId: z.number().int().positive(),
-          rating: z.number().int().min(1).max(5),
+          qualityRating: z.number().int().min(1).max(5),
+          responseSpeedRating: z.number().int().min(1).max(5),
+          priceRating: z.number().int().min(1).max(5),
           comment: z.string().optional(),
         })
       )
@@ -170,7 +170,9 @@ export const appRouter = router({
           accessToken: input.accessToken,
           requestId: input.requestId,
           offerId: input.offerId,
-          rating: input.rating,
+          qualityRating: input.qualityRating,
+          responseSpeedRating: input.responseSpeedRating,
+          priceRating: input.priceRating,
           comment: input.comment,
         })
       ),
