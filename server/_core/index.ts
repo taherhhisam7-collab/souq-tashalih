@@ -4,6 +4,8 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { resolveMarketplaceUser } from "../db";
+import { subscribeToMarketplaceNotifications } from "../marketplaceNotifications";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -35,6 +37,44 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  app.get("/api/marketplace/notifications/stream", async (req, res) => {
+    const accessToken = typeof req.query.accessToken === "string" ? req.query.accessToken : "";
+
+    if (!accessToken) {
+      res.status(400).json({ message: "رمز الدخول مطلوب لفتح قناة الإشعارات." });
+      return;
+    }
+
+    try {
+      const user = await resolveMarketplaceUser(accessToken);
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders?.();
+
+      res.write(`data: ${JSON.stringify({ type: "ready" })}\n\n`);
+
+      const keepAlive = setInterval(() => {
+        res.write(": keep-alive\n\n");
+      }, 15000);
+
+      const unsubscribe = subscribeToMarketplaceNotifications(user.id, payload => {
+        res.write(`data: ${JSON.stringify({ type: "notification", notification: payload })}\n\n`);
+      });
+
+      req.on("close", () => {
+        clearInterval(keepAlive);
+        unsubscribe();
+        res.end();
+      });
+    } catch (error) {
+      console.error("[MarketplaceNotifications] Failed to open stream", error);
+      res.status(401).json({ message: "تعذر التحقق من جلسة المستخدم لفتح الإشعارات." });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

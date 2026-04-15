@@ -9,6 +9,7 @@ const dbMocks = vi.hoisted(() => ({
   acceptOffer: vi.fn(),
   completeDeal: vi.fn(),
   createReviewForDeal: vi.fn(),
+  markNotificationAsRead: vi.fn(),
 }));
 
 const supabaseMocks = vi.hoisted(() => ({
@@ -51,6 +52,8 @@ describe("marketplace router", () => {
       publicCars: [],
       myCars: [],
       myReviews: [],
+      notifications: [],
+      unreadNotificationsCount: 0,
     });
     dbMocks.createRequestWithImages.mockResolvedValue({ id: 11 });
     dbMocks.createOfferWithImages.mockResolvedValue({ id: 22 });
@@ -58,6 +61,7 @@ describe("marketplace router", () => {
     dbMocks.acceptOffer.mockResolvedValue({ success: true });
     dbMocks.completeDeal.mockResolvedValue({ success: true });
     dbMocks.createReviewForDeal.mockResolvedValue({ id: 44 });
+    dbMocks.markNotificationAsRead.mockResolvedValue({ success: true });
   });
 
   it("returns the public supabase config for the client", async () => {
@@ -123,6 +127,11 @@ describe("marketplace router", () => {
       comment: "التعامل ممتاز وسرعة في التسليم",
     });
 
+    await caller.marketplace.markNotificationRead({
+      accessToken: "valid-access-token",
+      notificationId: 91,
+    });
+
     expect(dbMocks.createRequestWithImages).toHaveBeenCalledWith({
       accessToken: "valid-access-token",
       vehicleBrand: "تويوتا",
@@ -159,6 +168,10 @@ describe("marketplace router", () => {
       offerId: 22,
       rating: 5,
       comment: "التعامل ممتاز وسرعة في التسليم",
+    });
+    expect(dbMocks.markNotificationAsRead).toHaveBeenCalledWith({
+      accessToken: "valid-access-token",
+      notificationId: 91,
     });
   });
 

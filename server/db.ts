@@ -3,14 +3,17 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   carsForSale,
   InsertCarForSale,
+  InsertNotification,
   InsertOffer,
   InsertReview,
   InsertUser,
+  notifications,
   offers,
   requests,
   reviews,
   users,
 } from "../drizzle/schema";
+import { publishMarketplaceNotification } from "./marketplaceNotifications";
 import { ENV } from "./_core/env";
 import { uploadImagesToSupabase, verifySupabaseAccessToken } from "./supabase";
 
@@ -45,6 +48,11 @@ function normalizeNullableText(value?: string | null) {
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function serializeDateValue(value: Date | string | null | undefined) {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -111,6 +119,44 @@ async function getUserBySupabaseUserId(supabaseUserId: string) {
 
   const result = await db.select().from(users).where(eq(users.supabaseUserId, supabaseUserId)).limit(1);
   return result[0];
+}
+
+async function createNotificationForNewOffer(params: {
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>;
+  customerUserId: number;
+  requestId: number;
+  offerId: number;
+  supplierUserId: number;
+  title: string;
+  body: string;
+}) {
+  const notificationValues: InsertNotification = {
+    userId: params.customerUserId,
+    requestId: params.requestId,
+    offerId: params.offerId,
+    supplierUserId: params.supplierUserId,
+    type: "new_offer",
+    title: params.title,
+    body: params.body,
+    isRead: 0,
+  };
+
+  const insertResult = await params.db.insert(notifications).values(notificationValues);
+  const insertedNotificationId = Number((insertResult as { insertId?: number }).insertId ?? 0);
+  const createdAtIso = new Date().toISOString();
+
+  publishMarketplaceNotification({
+    id: insertedNotificationId,
+    userId: params.customerUserId,
+    requestId: params.requestId,
+    offerId: params.offerId,
+    supplierUserId: params.supplierUserId,
+    type: "new_offer",
+    title: params.title,
+    body: params.body,
+    isRead: 0,
+    createdAt: createdAtIso,
+  });
 }
 
 export async function resolveMarketplaceUser(accessToken: string, roleHint?: "customer" | "supplier") {
@@ -233,13 +279,20 @@ export async function createOfferWithImages(params: {
   }
 
   const user = await resolveMarketplaceUser(params.accessToken, "supplier");
+  const targetRequest = await db.select().from(requests).where(eq(requests.id, params.requestId)).limit(1);
+  const requestRecord = targetRequest[0];
+
+  if (!requestRecord) {
+    throw new Error("الطلب المطلوب غير موجود.");
+  }
+
   const imageUrls = await uploadImagesToSupabase({
     files: params.files,
     userId: user.supabaseUserId ?? String(user.id),
     folder: "offers",
   });
 
-  await db.insert(offers).values({
+  const insertOfferResult = await db.insert(offers).values({
     requestId: params.requestId,
     supplierUserId: user.id,
     priceSar: params.priceSar,
@@ -250,7 +303,23 @@ export async function createOfferWithImages(params: {
     status: "pending",
   } satisfies InsertOffer);
 
+  const insertedOfferId = Number((insertOfferResult as { insertId?: number }).insertId ?? 0);
+
   await db.update(requests).set({ status: "offered" }).where(eq(requests.id, params.requestId));
+
+  if (requestRecord.customerUserId !== user.id && insertedOfferId > 0) {
+    const supplierDisplayName = user.businessName ?? user.name ?? user.phoneNumber ?? "أحد الموردين";
+    await createNotificationForNewOffer({
+      db,
+      customerUserId: requestRecord.customerUserId,
+      requestId: params.requestId,
+      offerId: insertedOfferId,
+      supplierUserId: user.id,
+      title: "وصل عرض جديد على طلبك",
+      body: `أرسل ${supplierDisplayName} عرضاً جديداً لقطعة ${requestRecord.partName} بسعر ${params.priceSar} ر.س.`,
+    });
+  }
+
   return getMarketplaceState(params.accessToken);
 }
 
@@ -360,6 +429,36 @@ export async function createReviewForDeal(params: {
   return getMarketplaceState(params.accessToken);
 }
 
+export async function markNotificationAsRead(params: { accessToken: string; notificationId: number }) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("قاعدة البيانات غير متاحة حالياً.");
+  }
+
+  const user = await resolveMarketplaceUser(params.accessToken);
+  const targetNotification = await db
+    .select()
+    .from(notifications)
+    .where(and(eq(notifications.id, params.notificationId), eq(notifications.userId, user.id)))
+    .limit(1);
+
+  if (!targetNotification[0]) {
+    throw new Error("الإشعار المطلوب غير موجود.");
+  }
+
+  if (!targetNotification[0].isRead) {
+    await db
+      .update(notifications)
+      .set({
+        isRead: 1,
+        readAt: new Date(),
+      })
+      .where(eq(notifications.id, params.notificationId));
+  }
+
+  return getMarketplaceState(params.accessToken);
+}
+
 export async function getMarketplaceState(accessToken: string) {
   const db = await getDb();
   if (!db) {
@@ -368,12 +467,13 @@ export async function getMarketplaceState(accessToken: string) {
 
   const currentUser = await resolveMarketplaceUser(accessToken);
 
-  const [allRequests, allOffers, allCars, allReviews, allUsers] = await Promise.all([
+  const [allRequests, allOffers, allCars, allReviews, allUsers, allNotifications] = await Promise.all([
     db.select().from(requests).orderBy(desc(requests.createdAt)),
     db.select().from(offers).orderBy(desc(offers.createdAt)),
     db.select().from(carsForSale).orderBy(desc(carsForSale.createdAt)),
     db.select().from(reviews).orderBy(desc(reviews.createdAt)),
     db.select().from(users).orderBy(desc(users.updatedAt)),
+    db.select().from(notifications).orderBy(desc(notifications.createdAt)),
   ]);
 
   const userById = new Map(allUsers.map((item) => [item.id, item]));
@@ -412,6 +512,7 @@ export async function getMarketplaceState(accessToken: string) {
     offers: offersByRequestId.get(request.id) ?? [],
   }));
 
+  const requestById = new Map(enrichedRequests.map((request) => [request.id, request]));
   const customerRequests = enrichedRequests.filter((request) => request.customerUserId === currentUser.id);
   const supplierRequests = enrichedRequests.filter((request) => request.customerUserId !== currentUser.id);
   const myCars = allCars
@@ -420,6 +521,16 @@ export async function getMarketplaceState(accessToken: string) {
   const publicCars = allCars.map((car) => ({ ...car, owner: userById.get(car.ownerUserId), imageUrls: safeJsonParse(car.imageUrls) }));
   const myOfferIds = allOffers.filter((offer) => offer.supplierUserId === currentUser.id).map((offer) => offer.id);
   const myReviews = allReviews.filter((review) => myOfferIds.includes(review.offerId));
+  const userNotifications = allNotifications
+    .filter((notification) => notification.userId === currentUser.id)
+    .map((notification) => ({
+      ...notification,
+      createdAtIso: serializeDateValue(notification.createdAt),
+      readAtIso: serializeDateValue(notification.readAt),
+      supplier: userById.get(notification.supplierUserId),
+      request: requestById.get(notification.requestId),
+    }));
+  const unreadNotificationsCount = userNotifications.filter((notification) => !notification.isRead).length;
 
   return {
     currentUser: {
@@ -431,5 +542,7 @@ export async function getMarketplaceState(accessToken: string) {
     publicCars,
     myCars,
     myReviews,
+    notifications: userNotifications,
+    unreadNotificationsCount,
   };
 }

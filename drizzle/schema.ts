@@ -10,7 +10,7 @@ import {
 /**
  * Core user table backing auth flow.
  * The template uses openId for authentication identity. For phone-auth users,
- * we can persist a derived openId such as `firebase:{uid}` while keeping the same contract.
+ * we can persist a derived openId such as `supabase:{uid}` while keeping the same contract.
  */
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -89,6 +89,20 @@ export const reviews = mysqlTable("reviews", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  requestId: int("requestId").notNull(),
+  offerId: int("offerId").notNull(),
+  supplierUserId: int("supplierUserId").notNull(),
+  type: mysqlEnum("type", ["new_offer"]).default("new_offer").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body"),
+  isRead: int("isRead").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  readAt: timestamp("readAt"),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
@@ -103,3 +117,6 @@ export type InsertCarForSale = typeof carsForSale.$inferInsert;
 
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = typeof reviews.$inferInsert;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;

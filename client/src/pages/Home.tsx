@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { createClient, type Session } from "@supabase/supabase-js";
 import { canUseDemoOtp, DEMO_ACCESS_TOKEN, DEMO_OTP_CODE, DEMO_PHONE, getDemoOtpHint } from "@/lib/demoOtp";
 import {
+  BellRing,
   CarFront,
   CheckCircle2,
   CircleDollarSign,
@@ -15,7 +16,7 @@ import {
   Store,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type RoleType = "customer" | "supplier";
@@ -81,6 +82,18 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function formatNotificationTime(value?: string | null) {
+  if (!value) return "الآن";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "الآن";
+  return parsed.toLocaleString("ar-SA", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function Home() {
   const utils = trpc.useUtils();
   const configQuery = trpc.marketplace.getPublicConfig.useQuery();
@@ -91,6 +104,7 @@ export default function Home() {
   const [otpCode, setOtpCode] = useState("");
   const [selectedRole, setSelectedRole] = useState<RoleType>("customer");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const [isNotificationTrayOpen, setIsNotificationTrayOpen] = useState(false);
   const [offerRequestId, setOfferRequestId] = useState<number | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{ requestId: number; offerId: number } | null>(null);
   const [requestFiles, setRequestFiles] = useState<File[]>([]);
@@ -127,6 +141,7 @@ export default function Home() {
     rating: "5",
     comment: "",
   });
+  const receivedLiveNotificationIds = useRef<Set<number>>(new Set());
 
   const supabase = useMemo(() => {
     if (!configQuery.data?.url || !configQuery.data?.anonKey) return null;
@@ -229,6 +244,13 @@ export default function Home() {
     onError: (error) => toast.error(error.message),
   });
 
+  const markNotificationReadMutation = trpc.marketplace.markNotificationRead.useMutation({
+    onSuccess: async () => {
+      await utils.marketplace.getState.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const appState = appStateQuery.data as any;
   const currentUser = appState?.currentUser as any;
   const customerRequests = (appState?.customerRequests ?? []) as any[];
@@ -236,6 +258,8 @@ export default function Home() {
   const publicCars = (appState?.publicCars ?? []) as any[];
   const myCars = (appState?.myCars ?? []) as any[];
   const myReviews = (appState?.myReviews ?? []) as any[];
+  const notificationItems = (appState?.notifications ?? []) as any[];
+  const unreadNotificationsCount = Number(appState?.unreadNotificationsCount ?? 0);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -248,6 +272,41 @@ export default function Home() {
     setSupportedBrands(Array.isArray(currentUser.supportedBrands) ? currentUser.supportedBrands.join("، ") : "");
   }, [currentUser?.id, currentUser?.role, currentUser?.name, currentUser?.city, currentUser?.businessName, currentUser?.supportedBrands]);
 
+  useEffect(() => {
+    receivedLiveNotificationIds.current.clear();
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || !isSignedIn) return;
+
+    const eventSource = new EventSource(`/api/marketplace/notifications/stream?accessToken=${encodeURIComponent(accessToken)}`);
+
+    eventSource.onmessage = (event) => {
+      if (!event.data) return;
+      try {
+        const payload = JSON.parse(event.data) as { type?: string; notification?: { id?: number; title?: string; body?: string | null } };
+        if (payload.type !== "notification" || !payload.notification?.id) return;
+        if (receivedLiveNotificationIds.current.has(payload.notification.id)) return;
+        receivedLiveNotificationIds.current.add(payload.notification.id);
+        setIsNotificationTrayOpen(true);
+        toast.success(payload.notification.title ?? "وصل إشعار جديد", {
+          description: payload.notification.body ?? "تم استلام عرض جديد على أحد طلباتك.",
+        });
+        void utils.marketplace.getState.invalidate();
+      } catch (error) {
+        console.error("تعذر تحليل الإشعار اللحظي", error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.warn("تعذر الحفاظ على اتصال الإشعارات اللحظي، سيتم الاعتماد على إعادة الاتصال التلقائية.", error);
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [accessToken, isSignedIn, utils.marketplace.getState]);
+
   const normalizedPhone = normalizeSaudiPhone(phoneInput);
   const isBusy =
     configQuery.isLoading ||
@@ -258,7 +317,8 @@ export default function Home() {
     createCarMutation.isPending ||
     acceptOfferMutation.isPending ||
     completeDealMutation.isPending ||
-    createReviewMutation.isPending;
+    createReviewMutation.isPending ||
+    markNotificationReadMutation.isPending;
 
   async function handleSendOtp() {
     if (!supabase && normalizedPhone !== DEMO_PHONE) return;
@@ -316,6 +376,7 @@ export default function Home() {
     setOtpCode("");
     setActivePanel(null);
     setOfferRequestId(null);
+    setIsNotificationTrayOpen(false);
     toast.success("تم تسجيل الخروج.");
   }
 
@@ -425,13 +486,27 @@ export default function Home() {
               <h1 className="mt-1 text-3xl font-black tracking-tight">سوق التشاليح</h1>
             </div>
             {isSignedIn ? (
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-full bg-white/12 p-3 text-white transition hover:bg-white/20"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNotificationTrayOpen((prev) => !prev)}
+                  className="relative rounded-full bg-white/12 p-3 text-white transition hover:bg-white/20"
+                >
+                  <BellRing className="h-5 w-5" />
+                  {unreadNotificationsCount ? (
+                    <span className="absolute -left-1 -top-1 rounded-full bg-[#111111] px-1.5 py-0.5 text-[10px] font-black text-white">
+                      {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-full bg-white/12 p-3 text-white transition hover:bg-white/20"
+                >
+                  <LogOut className="h-5 w-5" />
+                </button>
+              </div>
             ) : (
               <div className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium">+966</div>
             )}
@@ -534,8 +609,14 @@ export default function Home() {
                     <p className="text-sm text-[#868278]">مرحباً بك</p>
                     <h2 className="text-xl font-black">{currentUser?.name || currentUser?.phoneNumber || "مستخدم سوق التشاليح"}</h2>
                   </div>
-                  <div className="rounded-2xl bg-[#eef7f1] p-3 text-[#0c8f4a]">
-                    {selectedRole === "customer" ? <UserRound className="h-6 w-6" /> : <Store className="h-6 w-6" />}
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-2xl bg-[#eef7f1] px-3 py-2 text-center text-[#0c8f4a]">
+                      <p className="text-[11px] text-[#5f7f69]">غير مقروءة</p>
+                      <p className="text-lg font-black">{unreadNotificationsCount}</p>
+                    </div>
+                    <div className="rounded-2xl bg-[#eef7f1] p-3 text-[#0c8f4a]">
+                      {selectedRole === "customer" ? <UserRound className="h-6 w-6" /> : <Store className="h-6 w-6" />}
+                    </div>
                   </div>
                 </div>
 
@@ -583,6 +664,58 @@ export default function Home() {
                 <button type="button" onClick={handleSaveProfile} className="mt-4 w-full rounded-2xl bg-[#0c8f4a] px-4 py-3 text-sm font-bold text-white">
                   حفظ البيانات
                 </button>
+              </SectionCard>
+
+              <SectionCard>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold">إشعارات الطلبات</h3>
+                    <p className="text-sm text-[#7f7a72]">ستظهر العروض الجديدة هنا فور وصولها إلى طلباتك، مع إمكان تمييزها كمقروءة.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsNotificationTrayOpen((prev) => !prev)}
+                    className="rounded-full bg-[#eef7f1] px-4 py-2 text-xs font-bold text-[#0c8f4a]"
+                  >
+                    {isNotificationTrayOpen ? "إخفاء" : "عرض الكل"}
+                  </button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {notificationItems.length ? (
+                    (isNotificationTrayOpen ? notificationItems : notificationItems.slice(0, 2)).map((notification) => {
+                      const isUnread = !notification.isRead;
+                      return (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => {
+                            if (isUnread) {
+                              markNotificationReadMutation.mutate({ accessToken, notificationId: notification.id });
+                            }
+                          }}
+                          className={`w-full rounded-[24px] border p-4 text-right transition ${isUnread ? "border-[#0c8f4a]/20 bg-[#eef7f1]" : "border-black/5 bg-[#fbfaf7]"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold text-[#121212]">{notification.title}</p>
+                              <p className="mt-1 text-xs leading-5 text-[#6c675f]">{notification.body || "تم استلام عرض جديد على أحد الطلبات."}</p>
+                            </div>
+                            <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${isUnread ? "bg-[#111111] text-white" : "bg-white text-[#6f6a61]"}`}>
+                              {isUnread ? "جديد" : "مقروء"}
+                            </span>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#6d675f]">
+                            <span>{notification.request?.partName || "طلب قطعة"}</span>
+                            <span>{notification.supplier?.businessName || notification.supplier?.name || "أحد الموردين"}</span>
+                            <span>{formatNotificationTime(notification.createdAtIso || notification.createdAt)}</span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="rounded-2xl bg-[#f6f3eb] px-4 py-5 text-center text-sm text-[#716d64]">لا توجد إشعارات حتى الآن. عند وصول عرض جديد على طلبك سيظهر هنا مباشرة.</p>
+                  )}
+                </div>
               </SectionCard>
 
               {selectedRole === "customer" ? (

@@ -22,6 +22,13 @@
       "when": 1776249706844,
       "tag": "0002_mysterious_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1776254579766,
+      "tag": "0003_fancy_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }

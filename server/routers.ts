@@ -11,6 +11,7 @@ import {
   createRequestWithImages,
   createReviewForDeal,
   getMarketplaceState,
+  markNotificationAsRead,
   saveUserProfile,
 } from "./db";
 import { getSupabasePublicConfig } from "./supabase";
@@ -171,6 +172,18 @@ export const appRouter = router({
           offerId: input.offerId,
           rating: input.rating,
           comment: input.comment,
+        })
+      ),
+    markNotificationRead: publicProcedure
+      .input(
+        accessTokenSchema.extend({
+          notificationId: z.number().int().positive(),
+        })
+      )
+      .mutation(({ input }) =>
+        markNotificationAsRead({
+          accessToken: input.accessToken,
+          notificationId: input.notificationId,
         })
       ),
   }),
